@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
     package="com.harshad.cameraapp">
-
-    <uses-permission android:name="android.permission.CAMERA" />
+    <!-- Declare permissions -->
+    <uses-permission android:name="android.permission.CAMERA" /> <!-- Declare features -->
     <uses-feature android:name="android.hardware.camera.any" />
 
     <application
@@ -12,7 +13,16 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.CameraApp">
-        <activity android:name=".view.MainActivity">
+        <activity android:name=".view.activity.MainActivity"/>
+        <activity
+            android:name=".view.activity.SplashScreenActivity"
+            android:clearTaskOnLaunch="true"
+            android:configChanges="orientation|screenLayout|screenSize|smallestScreenSize"
+            android:icon="@mipmap/ic_launcher"
+            android:resizeableActivity="true"
+            android:rotationAnimation="seamless"
+            android:screenOrientation="fullUser"
+            tools:targetApi="Q">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
 
