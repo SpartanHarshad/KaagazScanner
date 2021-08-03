@@ -1,60 +1,165 @@
 package com.harshad.cameraapp.view.fragments
 
+import android.content.Intent
+import android.media.MediaScannerConnection
+import android.os.Build
 import android.os.Bundle
 import androidx.fragment.app.Fragment
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.webkit.MimeTypeMap
+import androidx.appcompat.app.AlertDialog
+import androidx.core.content.FileProvider
+import androidx.fragment.app.FragmentManager
+import androidx.fragment.app.FragmentStatePagerAdapter
+import androidx.navigation.Navigation
 import com.harshad.cameraapp.R
+import com.harshad.cameraapp.databinding.FragmentGalleryBinding
+import java.io.File
+import java.util.*
 
-// TODO: Rename parameter arguments, choose names that match
-// the fragment initialization parameters, e.g. ARG_ITEM_NUMBER
-private const val ARG_PARAM1 = "param1"
-private const val ARG_PARAM2 = "param2"
 
 /**
  * A simple [Fragment] subclass.
  * Use the [GalleryFragment.newInstance] factory method to
  * create an instance of this fragment.
  */
-class GalleryFragment : Fragment() {
-    // TODO: Rename and change types of parameters
-    private var param1: String? = null
-    private var param2: String? = null
+
+val EXTENSION_WHITELIST = arrayOf("JPG")
+
+class GalleryFragment internal constructor() : Fragment() {
+
+    /** Android ViewBinding */
+    private var _fragmentGalleryBinding: FragmentGalleryBinding? = null
+
+    private val fragmentGalleryBinding get() = _fragmentGalleryBinding!!
+
+    /** AndroidX navigation arguments */
+    private val args: GalleryFragmentArgs by navArgs(
+
+    private lateinit var mediaList: MutableList<File>
+
+    /** Adapter class used to present a fragment containing one photo or video as a page */
+    inner class MediaPagerAdapter(fm: FragmentManager) : FragmentStatePagerAdapter(fm, BEHAVIOR_RESUME_ONLY_CURRENT_FRAGMENT) {
+        override fun getCount(): Int = mediaList.size
+        override fun getItem(position: Int): Fragment = PhotoFragment.create(mediaList[position])
+        override fun getItemPosition(obj: Any): Int = POSITION_NONE
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        arguments?.let {
-            param1 = it.getString(ARG_PARAM1)
-            param2 = it.getString(ARG_PARAM2)
-        }
+
+        // Mark this as a retain fragment, so the lifecycle does not get restarted on config change
+        retainInstance = true
+
+        // Get root directory of media from navigation arguments
+        val rootDirectory = File(args.rootDirectory)
+
+        // Walk through all files in the root directory
+        // We reverse the order of the list to present the last photos first
+        mediaList = rootDirectory.listFiles { file ->
+            EXTENSION_WHITELIST.contains(file.extension.toUpperCase(Locale.ROOT))
+        }?.sortedDescending()?.toMutableList() ?: mutableListOf()
     }
 
     override fun onCreateView(
-        inflater: LayoutInflater, container: ViewGroup?,
-        savedInstanceState: Bundle?,
-    ): View? {
-        // Inflate the layout for this fragment
-        return inflater.inflate(R.layout.fragment_gallery, container, false)
+        inflater: LayoutInflater,
+        container: ViewGroup?,
+        savedInstanceState: Bundle?
+    ): View {
+        _fragmentGalleryBinding = FragmentGalleryBinding.inflate(inflater, container, false)
+        return fragmentGalleryBinding.root
     }
 
-    companion object {
-        /**
-         * Use this factory method to create a new instance of
-         * this fragment using the provided parameters.
-         *
-         * @param param1 Parameter 1.
-         * @param param2 Parameter 2.
-         * @return A new instance of fragment GalleryFragment.
-         */
-        // TODO: Rename and change types and number of parameters
-        @JvmStatic
-        fun newInstance(param1: String, param2: String) =
-            GalleryFragment().apply {
-                arguments = Bundle().apply {
-                    putString(ARG_PARAM1, param1)
-                    putString(ARG_PARAM2, param2)
+    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        super.onViewCreated(view, savedInstanceState)
+
+        //Checking media files list
+        if (mediaList.isEmpty()) {
+            fragmentGalleryBinding.deleteButton.isEnabled = false
+            fragmentGalleryBinding.shareButton.isEnabled = false
+        }
+
+        // Populate the ViewPager and implement a cache of two media items
+        fragmentGalleryBinding.photoViewPager.apply {
+            offscreenPageLimit = 2
+            adapter = MediaPagerAdapter(childFragmentManager)
+        }
+
+        // Make sure that the cutout "safe area" avoids the screen notch if any
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            // Use extension method to pad "inside" view containing UI using display cutout's bounds
+            fragmentGalleryBinding.cutoutSafeArea.padWithDisplayCutout()
+        }
+
+        // Handle back button press
+        fragmentGalleryBinding.backButton.setOnClickListener {
+            Navigation.findNavController(requireActivity(), R.id.fragment_container).navigateUp()
+        }
+
+        // Handle share button press
+        fragmentGalleryBinding.shareButton.setOnClickListener {
+
+            mediaList.getOrNull(fragmentGalleryBinding.photoViewPager.currentItem)?.let { mediaFile ->
+
+                // Create a sharing intent
+                val intent = Intent().apply {
+                    // Infer media type from file extension
+                    val mediaType = MimeTypeMap.getSingleton()
+                        .getMimeTypeFromExtension(mediaFile.extension)
+                    // Get URI from our FileProvider implementation
+                    val uri = FileProvider.getUriForFile(
+                        view.context, BuildConfig.APPLICATION_ID + ".provider", mediaFile)
+                    // Set the appropriate intent extra, type, action and flags
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    type = mediaType
+                    action = Intent.ACTION_SEND
+                    flags = Intent.FLAG_GRANT_READ_URI_PERMISSION
                 }
+
+                // Launch the intent letting the user choose which app to share with
+                startActivity(Intent.createChooser(intent, getString(R.string.share_hint)))
             }
+        }
+
+        // Handle delete button press
+        fragmentGalleryBinding.deleteButton.setOnClickListener {
+
+            mediaList.getOrNull(fragmentGalleryBinding.photoViewPager.currentItem)?.let { mediaFile ->
+
+                AlertDialog.Builder(view.context, android.R.style.Theme_Material_Dialog)
+                    .setTitle(getString(R.string.delete_title))
+                    .setMessage(getString(R.string.delete_dialog))
+                    .setIcon(android.R.drawable.ic_dialog_alert)
+                    .setPositiveButton(android.R.string.yes) { _, _ ->
+
+                        // Delete current photo
+                        mediaFile.delete()
+
+                        // Send relevant broadcast to notify other apps of deletion
+                        MediaScannerConnection.scanFile(
+                            view.context, arrayOf(mediaFile.absolutePath), null, null)
+
+                        // Notify our view pager
+                        mediaList.removeAt(fragmentGalleryBinding.photoViewPager.currentItem)
+                        fragmentGalleryBinding.photoViewPager.adapter?.notifyDataSetChanged()
+
+                        // If all photos have been deleted, return to camera
+                        if (mediaList.isEmpty()) {
+                            Navigation.findNavController(requireActivity(), R.id.fragment_container).navigateUp()
+                        }
+
+                    }
+
+                    .setNegativeButton(android.R.string.no, null)
+                    .create().showImmersive()
+            }
+        }
+    }
+
+    override fun onDestroyView() {
+        _fragmentGalleryBinding = null
+        super.onDestroyView()
     }
 }

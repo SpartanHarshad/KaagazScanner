@@ -1,5 +1,6 @@
 package com.harshad.cameraapp.view.activity
 
+import android.content.Context
 import android.content.Intent
 import android.os.Build
 import androidx.appcompat.app.AppCompatActivity
@@ -15,6 +16,7 @@ import com.harshad.cameraapp.databinding.ActivityMainBinding
 import com.harshad.cameraapp.di.Constant.FLAG_TIMEOUT
 import com.harshad.cameraapp.di.Constant.KEY_EVENT_ACTION
 import com.harshad.cameraapp.di.Constant.KEY_EVENT_EXTRA
+import java.io.File
 import java.util.*
 
 class MainActivity : AppCompatActivity() {
@@ -94,6 +96,17 @@ class MainActivity : AppCompatActivity() {
                 true
             }
             else -> super.onKeyDown(keyCode, event)
+        }
+    }
+
+    companion object{
+        /** Use external media if it is available, our app's file directory otherwise */
+        fun getOutputDirectory(context: Context): File {
+            val appContext = context.applicationContext
+            val mediaDir = context.externalMediaDirs.firstOrNull()?.let {
+                File(it, appContext.resources.getString(R.string.app_name)).apply { mkdirs() } }
+            return if (mediaDir != null && mediaDir.exists())
+                mediaDir else appContext.filesDir
         }
     }
 }
